@@ -1,0 +1,97 @@
+const express = require('express');
+const mariadb = require('mariadb');
+const path = require('path');
+const axios = require('axios');
+const bodyParser = require('body-parser');
+const { error } = require('console');
+const app = express();
+const ip = '34.56.60.41';   // ip and replicaIp are switched on other VM
+const replicaIp = '35.239.139.129';
+const port = 80;
+
+const pool = mariadb.createPool({
+ host: '127.0.0.1',
+ port: 3306,
+ user: 'lgetter2',
+ password: 'secret',
+ database: 'hw2',
+ connectionLimit: 5
+});
+
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
+
+app.post('/register', async (req, res) => {
+  const username = req.body.username;
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    await conn.query('INSERT INTO users(username) VALUES (?)', [username]);
+    axios.post(`http://${replicaIp}/register-replica`, { username : username });
+    res.status(200).send();
+  } catch (err) {
+    res.status(500).send(`Error adding user: ${err}`);
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.post('/register-replica', async (req, res) => {
+  const username = req.body.username;
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    await conn.query('INSERT INTO users(username) VALUES (?)', [username]);
+    res.status(200).send();
+  } catch (err) {
+    res.status(500).send(`Error adding user: ${err}`);
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.get('/list', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const users = await conn.query('SELECT username FROM users');
+    const usernames = users.map(user => user.username);
+    res.status(200).json({ users : usernames });
+  } catch (err) {
+    res.status(500).send(`Error retrieving users: ${err}`);
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.post('/clear', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    await conn.query('DELETE FROM users');
+    axios.post(`http://${replicaIp}/clear-replica`);
+    res.status(200).send();
+  } catch (err) {
+    res.status(500).send(`Error deleting users: ${err}`);
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.post('/clear-replica', async (req, res) => {
+  const username = req.body.username;
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    await conn.query('DELETE FROM users');
+    res.status(200).send();
+  } catch (err) {
+    res.status(500).send(`Error adding user: ${err}`);
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on http://${ip}:${port}`);
+});
